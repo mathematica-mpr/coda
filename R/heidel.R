@@ -90,15 +90,20 @@
   return(list(spec=v0, order=order))
 }
 
-effectiveSize <- function(x)
+effectiveSize <- function(x, crosschain = FALSE)
 {
   if (is.mcmc.list(x))
     {
-      ##RGA changed to sum across all chains
-      ess <- do.call("rbind",lapply(x,effectiveSize))
-      ans <- apply(ess,2,sum)
+      if (crosschain) {
+        ans <- effectiveSize_crosschain(x)
+      }else{
+        ##RGA changed to sum across all chains
+        ess <- do.call("rbind",lapply(x,effectiveSize))
+        ans <- apply(ess,2,sum)
+      }
     }
   else
+    if (crosschain) message('Option crosschain only works with multiple chains; running default ESS calculations.')
     {
       x <- as.mcmc(x)
       x <- as.matrix(x)
@@ -182,6 +187,71 @@ effectiveSize <- function(x)
     y[k+1,] <- ifelse(u > -log.eps, 0, z * exp(-u) * besselK(x = u, nu=1/4))
   }
   return(apply(y,2,sum))
+}
+
+effectiveSize_crosschain <- function(x) {
+  if (!is.mcmc.list(x)) stop('x must be an mcmc.list')
+  chains <- nchain(x)
+  iters <- niter(x)
+  vars <- nvar(x)
+  varnames <- colnames(x[[1]]) 
+  
+  M_fail <- iters > 2
+  M <- iters
+  while (M_fail) {
+    M_test <- M
+    while (M_test%%2 == 0) M_test <- M_test/2
+    while (M_test%%3 == 0) M_test <- M_test/3
+    while (M_test%%5 == 0) M_test <- M_test/5
+    if (M_test<=1) M_fail <- FALSE
+    else M <- M + 1
+  }
+  
+  acs <- lapply(x,function(c){
+    apply(c,2,function(y) {
+      padded <- c(y - mean(y), rep.int(0, M*2 - iters))
+      xf <- fft(padded)
+      ac <- fft(Conj(xf) * xf, inverse = TRUE)
+      return(Re(ac)[1:iters]/(iters^2 * 2))
+    })
+  })
+  acs <- array(unlist(acs), dim=c(iters, vars, chains), dimnames = list(NULL, varnames, NULL))
+  
+  chain_means <- lapply(x, apply, 2, mean)
+  mean_vars <- apply(acs[1,,],1,mean) * iters / (iters-1)
+  between_vars <- apply(do.call(rbind,chain_means),2,var)
+  var_hats <- between_vars + mean_vars * (iters-1) / iters
+  
+  rho_hats_t <- 1 - sweep(-sweep(apply(acs, c(1,2), mean), 2, mean_vars),2,var_hats,'/')
+  rho_hats_t[1,] <- rep(1,vars)
+  
+  rho_hats_even <- rho_hats_t[1:iters %% 2 == 1,]
+  rho_hats_odd <- rho_hats_t[1:iters %% 2 == 0,]
+  if (iters %% 2 == 1) rho_hats_odd <- rbind(rho_hats_odd, rep(0,vars))
+  rho_hats_pair <- rho_hats_even + rho_hats_odd
+  
+  prior_pairs <- rho_hats_pair[1,]
+  for (i in 2:(ceiling(iters/2)-2)) {
+    rho_hats_pair[i,] <- pmin(prior_pairs,rho_hats_pair[i,])
+    rho_hats_pair[i,] <- pmax(rho_hats_pair[i,], rep(0, vars))
+    prior_pairs <- rho_hats_pair[i,]
+  }
+  rho_hats_pair[ceiling(iters/2)-1,] <- rep(0,vars)
+  rho_hats_pair[ceiling(iters/2),] <- rep(0,vars)
+  
+  for (j in 1:vars) {
+    for (i in 2:ceiling(iters/2)-1) {
+      if (rho_hats_pair[i,j]==0) {
+        rho_hats_pair[i,j] <- ifelse( rho_hats_even[i,j] > 0, rho_hats_even[i,j]/2, 0)
+        break
+      }
+    }
+  }
+  
+  tau_hats <- -1 + 2*apply(rho_hats_pair, 2, sum)
+  tau_hats <- pmax(tau_hats, 1/log10(iters*chains))
+  neffs <- iters * chains / tau_hats
+  neffs
 }
 
 
