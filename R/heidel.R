@@ -92,8 +92,7 @@
 
 effectiveSize <- function(x, crosschain = FALSE)
 {
-  if (is.mcmc.list(x))
-    {
+  if (is.mcmc.list(x)) {
       if (crosschain) {
         ans <- effectiveSize_crosschain(x)
       }else{
@@ -102,7 +101,7 @@ effectiveSize <- function(x, crosschain = FALSE)
         ans <- apply(ess,2,sum)
       }
     }
-  else if (crosschain){
+  else if (crosschain) {
     message('Option crosschain only works with multiple chains; running default ESS calculations.')
       x <- as.mcmc(x)
       x <- as.matrix(x)
