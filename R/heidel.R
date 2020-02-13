@@ -98,8 +98,7 @@ effectiveSize <- function(x)
       ess <- do.call("rbind",lapply(x,effectiveSize))
       ans <- apply(ess,2,sum)
     }
-  else
-    {
+    else{
       x <- as.mcmc(x)
       x <- as.matrix(x)
       spec <- spectrum0.ar(x)$spec
