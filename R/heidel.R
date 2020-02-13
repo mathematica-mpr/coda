@@ -103,6 +103,7 @@ effectiveSize <- function(x, crosschain = FALSE)
       }
     }
   else
+    if (crosschain) message('Option crosschain only works with multiple chains; running default ESS calculations.')
     {
       x <- as.mcmc(x)
       x <- as.matrix(x)
